@@ -9,7 +9,7 @@ A two-line band above the Claude Code prompt:
 
 | Figure | Meaning |
 |---|---|
-| `⎇ feat/umbrella-x` | Current git branch (short SHA on a detached HEAD, `sin repo` outside a repository) |
+| `⎇ feat/umbrella-x` | Current git branch (short SHA on a detached HEAD, `sin repo` outside a repository or when git is unavailable) |
 | `5h 42% (+11) ↻2h05m` | 5-hour subscription window: percent used, how much **this session** consumed, time until reset |
 | `7d 18% (+3) ↻3d4h` | Same for the 7-day window |
 | `▲ 1.2M tok (out 38k)` | Total tokens this session (input + output + cache read + cache write, subagents included), output separately |
@@ -32,6 +32,7 @@ Multiple mods are separated with `;` on Windows (`:` on macOS/Linux). Restart Cl
 
 - Token totals count from the moment the mod loads; earlier turns of a resumed session are not included.
 - The subscription delta includes other sessions running in parallel on the same account, since the windows are account-wide.
+- A resumed session's clock (`⏱`) counts from the session's first launch, while token totals count from when the mod loaded, so `⏱ 2d3h` can sit next to `▲ 0 tok`.
 - Window figures move only when the API reports them (after responses).
 - With an API key instead of a subscription there are no windows: `5h —` / `7d —`.
 

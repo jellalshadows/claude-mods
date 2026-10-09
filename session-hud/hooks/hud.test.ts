@@ -205,7 +205,8 @@ describe('hudReducer', () => {
   test('starts over when the session start changes, keeping the branch', () => {
     const before: HudState = hudReducer(hudReducer(null, measure()), turn())
     const after = hudReducer(before, turn({ startedAt: 2_000, usage: { ...USAGE, input_tokens: 0 } }))
-    expect(after).toMatchObject({ startedAt: 2_000, now: 2_000, branch: 'main', contextPercent: null, windows: {} })
+    expect(after).toMatchObject({ startedAt: 2_000, now: 2_000, branch: 'main', contextPercent: null })
+    expect(after.windows).toEqual({})
     expect(after.tokens).toEqual({ total: 1_250, output: 50 })
     expect(after.activeMs).toBe(60_000)
   })

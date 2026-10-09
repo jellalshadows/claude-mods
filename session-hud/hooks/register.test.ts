@@ -20,6 +20,9 @@ type World = {
   branch: string
   git: 'ok' | 'fails' | 'refused'
   isUsageDown: boolean
+  // When set, the next branch read parks on it (and clears it), so a test can
+  // hold one refresh in flight.
+  gate?: Promise<void>
 }
 
 const newWorld = (overrides: Partial<World> = {}): World =>
@@ -45,10 +48,16 @@ const stubEngine = (on: On, world: World) => {
       },
     }
   })
-  on('process.run', ($, e) => {
+  on('process.run', async ($, e) => {
     if (world.git === 'refused') return { deny: 'timed out' }
     if (world.git === 'fails') return { value: GIT_FAILURE }
-    const stdout = e.argv.join(' ') === 'git branch --show-current' ? `${world.branch}\n` : 'abc1234\n'
+    const isBranch = e.argv.join(' ') === 'git branch --show-current'
+    if (isBranch && world.gate !== undefined) {
+      const gate = world.gate
+      world.gate = undefined
+      await gate
+    }
+    const stdout = isBranch ? `${world.branch}\n` : 'abc1234\n'
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
 }
@@ -93,6 +102,37 @@ describe('session-hud band', () => {
     await clock.advance(MINUTE)
     expect(await textOf(ui, 'session-hud-line-1')).toBe('⎇ main │ 5h 50% (+8) ↻59m │ 7d —')
     expect(await textOf(ui, 'session-hud-line-2')).toBe('▲ 0 tok (out 0) │ ctx 61% │ ⏱ 2h01m · activo <1m')
+  })
+
+  test('serializes overlapping refreshes so a stale read never looks like a window roll', async ($, on) => {
+    const clock = mock.clock(on, { now: 2 * HOUR })
+    const world = newWorld({ percent5h: 31 })
+    stubEngine(on, world)
+    await $.session.start(START)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    let release = () => {}
+    world.percent5h = 42
+    world.gate = new Promise<void>(resolve => { release = resolve })
+    const tick = clock.advance(MINUTE)
+    await clock.settle()
+    world.percent5h = 43
+    const measured = $.session.measure({ context: { window: 200_000, percent: 61 }, rateLimits: [], changed: ['rateLimits'] })
+    await clock.settle()
+    release()
+    await Promise.all([tick, measured])
+    expect(await textOf(ui, 'session-hud-line-1')).toBe('⎇ main │ 5h 43% (+12) ↻59m │ 7d —')
+  })
+
+  test('draws each band line as one paragraph', async ($, on) => {
+    mock.clock(on, { now: 2 * HOUR })
+    stubEngine(on, newWorld())
+    await $.session.start(START)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    for (const key of ['session-hud-line-1', 'session-hud-line-2']) {
+      const line = await ui.find({ key })
+      expect(line?.children).toHaveLength(1)
+      expect((line?.children[0] as { type?: string }).type).toBe('Text')
+    }
   })
 
   test('starts the figures over after a /clear but keeps the branch', async ($, on) => {

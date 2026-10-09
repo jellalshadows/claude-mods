@@ -29,21 +29,27 @@ const readBranch = async ($: EngineInterface): Promise<string | null> => {
 }
 
 // A failed read keeps the last good state: the HUD never blocks a turn.
-const refresh = async ($: EngineInterface): Promise<void> => {
-  try {
-    const [usage, branch, now] = await Promise.all([$.session.usage(), readBranch($), $.clock.now()])
-    await dispatch($, {
-      type: 'measure',
-      startedAt: usage.startedAt,
-      now,
-      branch,
-      contextPercent: usage.context.percent ?? null,
-      rateLimits: usage.rateLimits,
-    })
-  } catch {
-    // Keep the last good state.
-  }
-}
+// Window tracking is order-sensitive: a stale lower percent would read as a
+// roll. Refreshes run one at a time, each reading after the last dispatched.
+let queue: Promise<void> = Promise.resolve()
+const serially = (work: () => Promise<void>): Promise<void> => (queue = queue.then(work))
+
+const refresh = ($: EngineInterface): Promise<void> =>
+  serially(async () => {
+    try {
+      const [usage, branch, now] = await Promise.all([$.session.usage(), readBranch($), $.clock.now()])
+      await dispatch($, {
+        type: 'measure',
+        startedAt: usage.startedAt,
+        now,
+        branch,
+        contextPercent: usage.context.percent ?? null,
+        rateLimits: usage.rateLimits,
+      })
+    } catch {
+      // Keep the last good state.
+    }
+  })
 
 const styleOf = (segment: Segment) => ({
   ...(segment.color === undefined ? {} : { color: segment.color }),
@@ -88,10 +94,10 @@ export const register: Register = on => {
     return (
       <Box key="session-hud" flexDirection="column">
         <Box key="session-hud-line-1">
-          {first.map(segment => <Text {...styleOf(segment)}>{segment.text}</Text>)}
+          <Text>{first.map(segment => <Text {...styleOf(segment)}>{segment.text}</Text>)}</Text>
         </Box>
         <Box key="session-hud-line-2">
-          {second.map(segment => <Text {...styleOf(segment)}>{segment.text}</Text>)}
+          <Text>{second.map(segment => <Text {...styleOf(segment)}>{segment.text}</Text>)}</Text>
         </Box>
       </Box>
     )
