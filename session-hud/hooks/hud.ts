@@ -119,3 +119,44 @@ export const hudReducer = (state: HudState | null, action: HudAction): HudState 
   const current = forSession(state, action.startedAt)
   return action.type === 'turn' ? applyTurn(current, action) : applyMeasure(current, action)
 }
+
+export type Segment = { text: string; color?: Severity; isDim?: boolean }
+
+export type BandLine = readonly Segment[]
+
+const SEPARATOR: Segment = { text: ' │ ' }
+
+const windowSegments = (label: string, track: WindowTrack | undefined, now: number): Segment[] => {
+  if (track === undefined) return [{ text: `${label} —` }]
+  const countdown = formatCountdown(track.resetsAt, now)
+  return [
+    { text: `${label} ` },
+    { text: formatPercent(track.lastPercent), color: severity(track.lastPercent) },
+    { text: ` (${formatDelta(windowDelta(track))})`, isDim: true },
+    ...(countdown === null ? [] : [{ text: ` ${countdown}`, isDim: true }]),
+  ]
+}
+
+const contextSegments = (percent: number | null): Segment[] =>
+  percent === null
+    ? [{ text: 'ctx —' }]
+    : [{ text: 'ctx ' }, { text: formatPercent(percent), color: severity(percent) }]
+
+export const bandLines = (state: HudState): [BandLine, BandLine] => [
+  [
+    { text: `⎇ ${state.branch ?? 'sin repo'}` },
+    SEPARATOR,
+    ...windowSegments('5h', state.windows.five_hour, state.now),
+    SEPARATOR,
+    ...windowSegments('7d', state.windows.seven_day, state.now),
+  ],
+  [
+    { text: `▲ ${formatTokens(state.tokens.total)} tok (out ${formatTokens(state.tokens.output)})` },
+    SEPARATOR,
+    ...contextSegments(state.contextPercent),
+    SEPARATOR,
+    { text: `⏱ ${formatDuration(state.now - state.startedAt)} · activo ${formatDuration(state.activeMs)}` },
+  ],
+]
+
+export const lineText = (line: BandLine): string => line.map(segment => segment.text).join('')

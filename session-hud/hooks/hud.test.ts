@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  bandLines,
+  emptyState,
   formatCountdown,
   formatDelta,
   formatDuration,
   formatPercent,
   formatTokens,
   hudReducer,
+  lineText,
   severity,
   trackWindow,
   windowDelta,
@@ -205,5 +208,51 @@ describe('hudReducer', () => {
     expect(after).toMatchObject({ startedAt: 2_000, now: 2_000, branch: 'main', contextPercent: null, windows: {} })
     expect(after.tokens).toEqual({ total: 1_250, output: 50 })
     expect(after.activeMs).toBe(60_000)
+  })
+})
+
+describe('bandLines', () => {
+  const MINUTE = 60_000
+  const HOUR = 60 * MINUTE
+  const NOW = 2 * HOUR + 13 * MINUTE
+  const full: HudState = {
+    startedAt: 0,
+    now: NOW,
+    branch: 'feat/umbrella-x',
+    tokens: { total: 1_200_000, output: 38_000 },
+    activeMs: 47 * MINUTE,
+    contextPercent: 61,
+    windows: {
+      five_hour: { baseline: 31, carried: 0, lastPercent: 42, resetsAt: new Date(NOW + 2 * HOUR + 5 * MINUTE).toISOString() },
+      seven_day: { baseline: 15, carried: 0, lastPercent: 18, resetsAt: new Date(NOW + (3 * 24 + 4) * HOUR).toISOString() },
+    },
+  }
+
+  test('draws the agreed two lines', () => {
+    const [first, second] = bandLines(full)
+    expect(lineText(first)).toBe('⎇ feat/umbrella-x │ 5h 42% (+11) ↻2h05m │ 7d 18% (+3) ↻3d4h')
+    expect(lineText(second)).toBe('▲ 1.2M tok (out 38k) │ ctx 61% │ ⏱ 2h13m · activo 47m')
+  })
+
+  test('colors the percents by severity and dims deltas and countdowns', () => {
+    const [first, second] = bandLines({ ...full, contextPercent: 85 })
+    expect(first.find(segment => segment.text === '42%')).toEqual({ text: '42%', color: 'success' })
+    expect(first.find(segment => segment.text === ' (+11)')).toEqual({ text: ' (+11)', isDim: true })
+    expect(first.find(segment => segment.text === ' ↻2h05m')).toEqual({ text: ' ↻2h05m', isDim: true })
+    expect(second.find(segment => segment.text === '85%')).toEqual({ text: '85%', color: 'error' })
+  })
+
+  test('draws placeholders before any reading', () => {
+    const [first, second] = bandLines(emptyState(0))
+    expect(lineText(first)).toBe('⎇ sin repo │ 5h — │ 7d —')
+    expect(lineText(second)).toBe('▲ 0 tok (out 0) │ ctx — │ ⏱ <1m · activo <1m')
+  })
+
+  test('omits a countdown whose reset has passed', () => {
+    const passed: HudState = {
+      ...full,
+      windows: { five_hour: { baseline: 31, carried: 0, lastPercent: 42, resetsAt: new Date(NOW - MINUTE).toISOString() } },
+    }
+    expect(lineText(bandLines(passed)[0])).toBe('⎇ feat/umbrella-x │ 5h 42% (+11) │ 7d —')
   })
 })
