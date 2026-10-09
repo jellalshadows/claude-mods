@@ -1,0 +1,7 @@
+{
+  "name": "session-hud",
+  "version": "0.1.0",
+  "description": "Two-line band above the prompt: git branch, subscription limits, session tokens, context fill and time.",
+  "author": { "name": "Adrian-Manuel" },
+  "types": "./types/index.d.ts"
+}
