@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { formatCountdown, formatDelta, formatDuration, formatPercent, formatTokens, severity } from './hud'
+import {
+  formatCountdown,
+  formatDelta,
+  formatDuration,
+  formatPercent,
+  formatTokens,
+  severity,
+  trackWindow,
+  windowDelta,
+} from './hud'
 
 describe('formatTokens', () => {
   test('keeps counts under a thousand raw', () => {
@@ -84,5 +93,55 @@ describe('formatCountdown', () => {
     expect(formatCountdown(undefined, 0)).toBeNull()
     expect(formatCountdown('1970-01-01T00:00:00.000Z', 60_000)).toBeNull()
     expect(formatCountdown('not a date', 0)).toBeNull()
+  })
+})
+
+describe('trackWindow', () => {
+  const R1 = '2026-10-09T15:00:00.000Z'
+  const R1_JITTER = '2026-10-09T15:00:30.000Z'
+  const R2 = '2026-10-09T20:00:00.000Z'
+
+  test('takes the first reading as the baseline', () => {
+    const track = trackWindow(undefined, { kind: 'five_hour', percentUsed: 31, resetsAt: R1 })
+    expect(track).toMatchObject({ baseline: 31, carried: 0, lastPercent: 31, resetsAt: R1 })
+    expect(windowDelta(track)).toBe(0)
+  })
+
+  test('grows the delta with later readings of the same window', () => {
+    const first = trackWindow(undefined, { kind: 'five_hour', percentUsed: 31, resetsAt: R1 })
+    const later = trackWindow(first, { kind: 'five_hour', percentUsed: 42, resetsAt: R1 })
+    expect(windowDelta(later)).toBe(11)
+  })
+
+  test('ignores reset jitter within a minute', () => {
+    const first = trackWindow(undefined, { kind: 'five_hour', percentUsed: 31, resetsAt: R1 })
+    const later = trackWindow(first, { kind: 'five_hour', percentUsed: 42, resetsAt: R1_JITTER })
+    expect(later).toMatchObject({ baseline: 31, carried: 0 })
+    expect(windowDelta(later)).toBe(11)
+  })
+
+  test('carries the delta when the reset time jumps forward', () => {
+    const first = trackWindow(undefined, { kind: 'five_hour', percentUsed: 31, resetsAt: R1 })
+    const later = trackWindow(first, { kind: 'five_hour', percentUsed: 42, resetsAt: R1 })
+    const rolled = trackWindow(later, { kind: 'five_hour', percentUsed: 5, resetsAt: R2 })
+    expect(rolled).toMatchObject({ baseline: 0, carried: 11, lastPercent: 5, resetsAt: R2 })
+    expect(windowDelta(rolled)).toBe(16)
+  })
+
+  test('carries the delta when the percent drops', () => {
+    const first = trackWindow(undefined, { kind: 'seven_day', percentUsed: 30 })
+    const later = trackWindow(first, { kind: 'seven_day', percentUsed: 42 })
+    const rolled = trackWindow(later, { kind: 'seven_day', percentUsed: 3 })
+    expect(rolled).toMatchObject({ baseline: 0, carried: 12, lastPercent: 3 })
+    expect(windowDelta(rolled)).toBe(15)
+  })
+
+  test('keeps growing, and keeps the known reset time, when a reading loses it', () => {
+    const first = trackWindow(undefined, { kind: 'five_hour', percentUsed: 31, resetsAt: R1 })
+    const later = trackWindow(first, { kind: 'five_hour', percentUsed: 35 })
+    expect(later).toMatchObject({ baseline: 31, carried: 0, lastPercent: 35, resetsAt: R1 })
+    expect(windowDelta(later)).toBe(4)
+    const rolled = trackWindow(later, { kind: 'five_hour', percentUsed: 40, resetsAt: R2 })
+    expect(rolled).toMatchObject({ baseline: 0, carried: 4, lastPercent: 40, resetsAt: R2 })
   })
 })

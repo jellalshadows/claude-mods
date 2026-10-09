@@ -1,3 +1,5 @@
+import type { WindowTrack } from '../types'
+
 export type Severity = 'success' | 'warning' | 'error'
 
 const trimZero = (text: string): string => text.replace(/\.0$/, '')
@@ -36,4 +38,22 @@ export const formatCountdown = (resetsAt: string | undefined, now: number): stri
   if (resetsAt === undefined) return null
   const remaining = Date.parse(resetsAt) - now
   return Number.isNaN(remaining) || remaining <= 0 ? null : `↻${formatDuration(remaining)}`
+}
+
+export type RateLimitReading = { kind: string; percentUsed: number; resetsAt?: string }
+
+const ROLL_SLACK_MS = 60_000
+
+const isLater = (next: string | undefined, previous: string | undefined): boolean =>
+  next !== undefined && previous !== undefined && Date.parse(next) - Date.parse(previous) > ROLL_SLACK_MS
+
+export const windowDelta = (track: WindowTrack): number => track.carried + track.lastPercent - track.baseline
+
+export const trackWindow = (previous: WindowTrack | undefined, reading: RateLimitReading): WindowTrack => {
+  const { percentUsed, resetsAt } = reading
+  if (previous === undefined) return { baseline: percentUsed, carried: 0, lastPercent: percentUsed, resetsAt }
+  const isRolled = percentUsed < previous.lastPercent || isLater(resetsAt, previous.resetsAt)
+  if (isRolled) return { baseline: 0, carried: windowDelta(previous), lastPercent: percentUsed, resetsAt }
+  // A reading without a reset time keeps the known one, so a later roll is still seen.
+  return { ...previous, lastPercent: percentUsed, resetsAt: resetsAt ?? previous.resetsAt }
 }
