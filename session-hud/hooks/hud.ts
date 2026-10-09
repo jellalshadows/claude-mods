@@ -1,0 +1,39 @@
+export type Severity = 'success' | 'warning' | 'error'
+
+const trimZero = (text: string): string => text.replace(/\.0$/, '')
+
+export const formatTokens = (n: number): string => {
+  if (n < 1_000) return String(n)
+  const thousandsOneDecimal = Math.round(n / 100) / 10
+  if (thousandsOneDecimal < 10) return `${trimZero(thousandsOneDecimal.toFixed(1))}k`
+  const thousands = Math.round(n / 1_000)
+  if (thousands < 1_000) return `${thousands}k`
+  return `${trimZero((Math.round(n / 100_000) / 10).toFixed(1))}M`
+}
+
+export const formatDuration = (ms: number): string => {
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return '<1m'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h${String(minutes % 60).padStart(2, '0')}m`
+  return `${Math.floor(hours / 24)}d${hours % 24}h`
+}
+
+export const formatDelta = (delta: number): string =>
+  `+${trimZero((Math.round(Math.max(0, delta) * 10) / 10).toFixed(1))}`
+
+export const formatPercent = (percent: number): string => `${Math.round(percent)}%`
+
+export const severity = (percent: number): Severity => {
+  const shown = Math.round(percent)
+  if (shown >= 80) return 'error'
+  if (shown >= 50) return 'warning'
+  return 'success'
+}
+
+export const formatCountdown = (resetsAt: string | undefined, now: number): string | null => {
+  if (resetsAt === undefined) return null
+  const remaining = Date.parse(resetsAt) - now
+  return Number.isNaN(remaining) || remaining <= 0 ? null : `↻${formatDuration(remaining)}`
+}
