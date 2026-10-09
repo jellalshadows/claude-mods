@@ -1,4 +1,4 @@
-import type { WindowTrack } from '../types'
+import type { HudState, WindowTrack } from '../types'
 
 export type Severity = 'success' | 'warning' | 'error'
 
@@ -56,4 +56,66 @@ export const trackWindow = (previous: WindowTrack | undefined, reading: RateLimi
   if (isRolled) return { baseline: 0, carried: windowDelta(previous), lastPercent: percentUsed, resetsAt }
   // A reading without a reset time keeps the known one, so a later roll is still seen.
   return { ...previous, lastPercent: percentUsed, resetsAt: resetsAt ?? previous.resetsAt }
+}
+
+export type TokenUsage = {
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+}
+
+export type TurnAction = { type: 'turn'; startedAt: number; usage?: TokenUsage; durationMs: number; isMain: boolean }
+
+export type MeasureAction = {
+  type: 'measure'
+  startedAt: number
+  now: number
+  branch: string | null
+  contextPercent: number | null
+  rateLimits: readonly RateLimitReading[]
+}
+
+export type HudAction = TurnAction | MeasureAction
+
+export const emptyState = (startedAt: number): HudState => ({
+  startedAt,
+  now: startedAt,
+  branch: null,
+  tokens: { total: 0, output: 0 },
+  activeMs: 0,
+  contextPercent: null,
+  windows: {},
+})
+
+// A new session start (/clear, resume) wipes the figures; the branch is the
+// working copy's, not the session's, so it survives until the next reading.
+const forSession = (state: HudState | null, startedAt: number): HudState =>
+  state !== null && state.startedAt === startedAt ? state : { ...emptyState(startedAt), branch: state?.branch ?? null }
+
+const applyTurn = (state: HudState, action: TurnAction): HudState => {
+  const { usage } = action
+  const tokens = usage === undefined
+    ? state.tokens
+    : {
+        total:
+          state.tokens.total +
+          usage.input_tokens +
+          usage.output_tokens +
+          usage.cache_read_input_tokens +
+          usage.cache_creation_input_tokens,
+        output: state.tokens.output + usage.output_tokens,
+      }
+  return { ...state, tokens, activeMs: action.isMain ? state.activeMs + action.durationMs : state.activeMs }
+}
+
+const applyMeasure = (state: HudState, action: MeasureAction): HudState => {
+  const windows = { ...state.windows }
+  for (const reading of action.rateLimits) windows[reading.kind] = trackWindow(windows[reading.kind], reading)
+  return { ...state, now: action.now, branch: action.branch, contextPercent: action.contextPercent, windows }
+}
+
+export const hudReducer = (state: HudState | null, action: HudAction): HudState => {
+  const current = forSession(state, action.startedAt)
+  return action.type === 'turn' ? applyTurn(current, action) : applyMeasure(current, action)
 }

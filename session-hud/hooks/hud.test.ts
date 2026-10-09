@@ -6,10 +6,13 @@ import {
   formatDuration,
   formatPercent,
   formatTokens,
+  hudReducer,
   severity,
   trackWindow,
   windowDelta,
 } from './hud'
+import type { HudState } from '../types'
+import type { MeasureAction, TurnAction } from './hud'
 
 describe('formatTokens', () => {
   test('keeps counts under a thousand raw', () => {
@@ -143,5 +146,64 @@ describe('trackWindow', () => {
     expect(windowDelta(later)).toBe(4)
     const rolled = trackWindow(later, { kind: 'five_hour', percentUsed: 40, resetsAt: R2 })
     expect(rolled).toMatchObject({ baseline: 0, carried: 4, lastPercent: 40, resetsAt: R2 })
+  })
+})
+
+describe('hudReducer', () => {
+  const USAGE = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1_000, cache_creation_input_tokens: 200 }
+  const turn = (overrides: Partial<TurnAction> = {}): TurnAction =>
+    ({ type: 'turn', startedAt: 1_000, usage: USAGE, durationMs: 60_000, isMain: true, ...overrides })
+  const measure = (overrides: Partial<MeasureAction> = {}): MeasureAction => ({
+    type: 'measure',
+    startedAt: 1_000,
+    now: 5_000,
+    branch: 'main',
+    contextPercent: 61,
+    rateLimits: [{ kind: 'five_hour', percentUsed: 31 }],
+    ...overrides,
+  })
+
+  test('adds the four token counts to the total and output to output', () => {
+    const state = hudReducer(null, turn())
+    expect(state.tokens).toEqual({ total: 1_350, output: 50 })
+  })
+
+  test('accumulates across turns', () => {
+    const state = hudReducer(hudReducer(null, turn()), turn())
+    expect(state.tokens).toEqual({ total: 2_700, output: 100 })
+    expect(state.activeMs).toBe(120_000)
+  })
+
+  test('counts a subagent turn in tokens but not in active time', () => {
+    const state = hudReducer(hudReducer(null, turn()), turn({ isMain: false, durationMs: 540_000 }))
+    expect(state.tokens.total).toBe(2_700)
+    expect(state.activeMs).toBe(60_000)
+  })
+
+  test('counts the duration of a main turn without usage', () => {
+    const state = hudReducer(null, turn({ usage: undefined, durationMs: 30_000 }))
+    expect(state.tokens).toEqual({ total: 0, output: 0 })
+    expect(state.activeMs).toBe(30_000)
+  })
+
+  test('takes time, branch, context and windows from a measurement', () => {
+    const first = hudReducer(null, measure())
+    const second = hudReducer(first, measure({ now: 9_000, rateLimits: [{ kind: 'five_hour', percentUsed: 42 }] }))
+    expect(second).toMatchObject({ now: 9_000, branch: 'main', contextPercent: 61 })
+    expect(second.windows.five_hour).toMatchObject({ baseline: 31, lastPercent: 42 })
+  })
+
+  test('keeps a window the latest measurement did not report', () => {
+    const first = hudReducer(null, measure({ rateLimits: [{ kind: 'seven_day', percentUsed: 18 }] }))
+    const second = hudReducer(first, measure({ rateLimits: [] }))
+    expect(second.windows.seven_day).toMatchObject({ lastPercent: 18 })
+  })
+
+  test('starts over when the session start changes, keeping the branch', () => {
+    const before: HudState = hudReducer(hudReducer(null, measure()), turn())
+    const after = hudReducer(before, turn({ startedAt: 2_000, usage: { ...USAGE, input_tokens: 0 } }))
+    expect(after).toMatchObject({ startedAt: 2_000, now: 2_000, branch: 'main', contextPercent: null, windows: {} })
+    expect(after.tokens).toEqual({ total: 1_250, output: 50 })
+    expect(after.activeMs).toBe(60_000)
   })
 })
