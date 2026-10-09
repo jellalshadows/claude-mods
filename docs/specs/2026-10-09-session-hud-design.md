@@ -219,3 +219,15 @@ Commands: `claude plugin validate <mod folder>` and `claude plugin test <mod fol
 - **Development:** written in the session mods folder with hot reload (`~/.claude/dev-mods/<session-id>/session-hud/`).
 - **Permanent home:** this repository, `~/claude-mods/session-hud/`, loaded in every session through `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`.
 - **Later option:** a `.claude-plugin/marketplace.json` makes the repository installable with `/plugin install session-hud --marketplace <owner>/<repo>`; out of scope for 0.1.0.
+
+## 11. Execution rulings
+
+Decisions taken while planning and implementing, on top of sections 1–10:
+
+- **Development location:** the mod is developed and committed in this repository (one commit per TDD step) and is only mirrored into the session mods folder for the live check; section 10's "development in the session mods folder" is superseded.
+- **Branch survives a session reset:** a `/clear` or resume wipes tokens, active time, context and windows, but keeps the last branch until the next reading, because the branch belongs to the working copy, not to the session.
+- **Band view model:** `bandLines(state)` in `hud.ts` turns the state into colored segments, so the whole layout is unit-tested without the engine; `register.tsx` only maps segments to `Text`.
+- **Severity colors** are the theme keys `success` / `warning` / `error`, computed on the rounded percent.
+- **Missing reset time:** a window reading without `resetsAt` keeps the previously known one (section 5.4 said "update `resetsAt`"), so a later roll is still detected and the countdown keeps showing.
+- **Contract shape:** the state is declared inline (`'session-hud': { hud: HudState | null }`); validation refuses an alias there.
+- **Test kit facts** (verified by a throwaway spike): op stubs answer `{ value }` or `{ deny }`; raised events need bottom hooks; a hook that throws does not fail a test, so every test asserts on the drawn band; `key` is honored on `Box` only.
